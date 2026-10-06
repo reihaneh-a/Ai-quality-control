@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Quality Control Live</title>
+<style>
+body{font-family:Arial,sans-serif;background:#10151c;color:#eee;margin:0;padding:26px}.wrap{max-width:1100px;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:15px}.live{color:#54d98c}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.card,.result,.stats,.history{background:#1b2430;border-radius:12px;padding:16px;margin-top:15px}.card b{font-size:22px}.result{text-align:center}.result h1{font-size:48px;margin:8px}.big-icon{font-size:64px;line-height:1}.bar{height:18px;background:#303b49;border-radius:10px;overflow:hidden}.fill{height:100%;background:#e66;transition:width .35s}.stats{display:flex;justify-content:space-around;gap:10px;text-align:center;flex-wrap:wrap}.stats b{font-size:24px}.history{overflow-x:auto}.history h3{margin-top:0}table{width:100%;border-collapse:collapse;min-width:850px}th,td{padding:9px 8px;border-bottom:1px solid #34404f;text-align:center;font-size:14px}th{color:#aebccc}.pass{color:#54d98c;font-weight:bold}.defect{color:#ff7272;font-weight:bold}.match{font-size:22px}.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.controls button{border:0;border-radius:9px;padding:11px 18px;font-weight:bold;cursor:pointer;font-size:14px}.controls button:disabled{opacity:.45;cursor:not-allowed}.stopbtn{background:#ff7272;color:#111}.continuebtn{background:#54d98c;color:#111}.newbtn{background:#f0c96a;color:#111}.note{color:#9eabb8;font-size:13px;margin-top:8px}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.top{display:block}.result h1{font-size:38px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div><h2>AI QUALITY CONTROL</h2><div id="pid">Starting production...</div></div><b class="live">● LIVE</b></div>
+  <div class="controls"><button id="continueBtn" class="continuebtn">▶ CONTINUE</button><button id="stopBtn" class="stopbtn">⏸ STOP</button><button id="newBtn" class="newbtn">🔄 NEW RUN</button><b id="runLabel">Run 1</b></div>
+  <div class="grid">
+    <div class="card">Temperature<br><b id="temperature">-</b></div>
+    <div class="card">Pressure<br><b id="pressure">-</b></div>
+    <div class="card">Vibration<br><b id="vibration">-</b></div>
+    <div class="card">Speed<br><b id="speed">-</b></div>
+    <div class="card">Weight<br><b id="weight">-</b></div>
+  </div>
+  <div class="result">
+    <small>AI PREDICTION</small><div class="big-icon" id="resultIcon">⏳</div><h1 id="prediction">-</h1>
+    <div>Defect Risk: <b id="risk">-</b></div><div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
+    <p>Actual QC: <b id="actual">-</b> &nbsp; | &nbsp; AI vs QC: <b id="match">-</b></p>
+  </div>
+  <div class="stats">
+    <div>Inspected<br><b id="inspected">0</b></div><div>PASS<br><b id="pass">0</b></div><div>DEFECT<br><b id="defect">0</b></div><div>Live Accuracy<br><b id="accuracy">0%</b></div>
+  </div>
+  <div class="history">
+    <h3>Live Production History</h3>
+    <table><thead><tr><th>Product</th><th>Temp</th><th>Pressure</th><th>Vibration</th><th>Speed</th><th>Weight</th><th>AI Result</th><th>Risk</th><th>Actual QC</th><th>Match</th></tr></thead><tbody id="historyBody"></tbody></table>
+    <div class="note">All inspected products are saved automatically in production_results.csv. NEW RUN never deletes previous CSV data.</div>
+  </div>
+</div>
+<script>
+const historyBody=document.getElementById('historyBody');
+let busy=false;
+function setRunningUI(running){
+  document.querySelector('.live').textContent=running?'● LIVE':'● PAUSED';
+  document.getElementById('stopBtn').disabled=!running;
+  document.getElementById('continueBtn').disabled=running;
+}
+async function command(url){
+  const r=await fetch(url,{method:'POST'}); const d=await r.json();
+  setRunningUI(d.running);
+  if(d.run_id) document.getElementById('runLabel').textContent='Run '+d.run_id;
+  return d;
+}
+document.getElementById('stopBtn').addEventListener('click',()=>command('/stop'));
+document.getElementById('continueBtn').addEventListener('click',()=>command('/continue'));
+document.getElementById('newBtn').addEventListener('click',async()=>{
+  const d=await command('/new-run');
+  historyBody.innerHTML='';
+  document.getElementById('pid').textContent='New production run started...';
+  ['inspected','pass','defect'].forEach(id=>document.getElementById(id).textContent='0');
+  document.getElementById('accuracy').textContent='0%';
+});
+async function loadData(){
+  if(busy) return; busy=true;
+  try{
+    const r=await fetch('/live'); const d=await r.json();
+    setRunningUI(d.running);
+    document.getElementById('runLabel').textContent='Run '+d.run_id;
+    if(!d.running) return;
+    document.getElementById('pid').textContent='Product: '+d.product_id;
+    ['temperature','pressure','vibration','speed','weight'].forEach(k=>document.getElementById(k).textContent=d[k]);
+    const pred=document.getElementById('prediction'); pred.textContent=d.prediction; pred.className=d.prediction==='PASS'?'pass':'defect';
+    document.getElementById('resultIcon').textContent=d.prediction==='PASS'?'✅':'❌';
+    const actual=document.getElementById('actual'); actual.textContent=d.actual_result; actual.className=d.actual_result==='PASS'?'pass':'defect';
+    document.getElementById('match').textContent=d.match==='YES'?'✅ Correct':'❌ Wrong';
+    const risk=(d.defect_probability*100).toFixed(1); document.getElementById('risk').textContent=risk+'%'; document.getElementById('fill').style.width=risk+'%';
+    document.getElementById('inspected').textContent=d.inspected; document.getElementById('pass').textContent=d.pass_count; document.getElementById('defect').textContent=d.defect_count; document.getElementById('accuracy').textContent=d.live_accuracy+'%';
+    const row=document.createElement('tr');
+    row.innerHTML=`<td>${d.product_id}</td><td>${d.temperature}</td><td>${d.pressure}</td><td>${d.vibration}</td><td>${d.speed}</td><td>${d.weight}</td><td class="${d.prediction==='PASS'?'pass':'defect'}">${d.prediction==='PASS'?'✅':'❌'} ${d.prediction}</td><td>${risk}%</td><td class="${d.actual_result==='PASS'?'pass':'defect'}">${d.actual_result}</td><td class="match">${d.match==='YES'?'✅':'❌'}</td>`;
+    historyBody.prepend(row); while(historyBody.rows.length>20) historyBody.deleteRow(20);
+  }catch(e){console.log(e)} finally{busy=false}
+}
+loadData(); setInterval(loadData,1000);
+</script>
+</body>
+</html>
